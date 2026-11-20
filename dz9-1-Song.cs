@@ -23,8 +23,7 @@ public class Song
 
     public override string ToString()
     {
-        return $"Песня: {Title}, Исполнитель: {Author}" + 
-               (PreviousSong != null ? $", Предыдущая: {PreviousSong.Title}" : "");
+        return $"Песня: {Title}, Исполнитель: {Author}" + (PreviousSong != null ? $", Предыдущая: {PreviousSong.Title}" : "");
     }
 }
 
