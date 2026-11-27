@@ -20,7 +20,7 @@ namespace TaskManagerApp
     }
 
 
-    public class Report //отчет
+    public class Report
     {
         public string Text;
         public DateTime CompletionDate;
@@ -35,17 +35,16 @@ namespace TaskManagerApp
     }
 
 
-    public class ProjectTask // задачи
+    public class ProjectTask
     {
         public int Id;
-        public string Description; //описание
+        public string Description;
         public DateTime Deadline;
         public string Initiator;
-        public string Executor; // Может быть null
+        public string Executor;
         public TaskStatus Status;
         public Report TaskReport;
         
-        // Для периодических задач (доп. задание)
         public bool IsPeriodic;
         public int PeriodInDays;
         public List<Report> ReportsHistory = new List<Report>();
@@ -58,15 +57,27 @@ namespace TaskManagerApp
             Description = description;
             Deadline = deadline;
             Initiator = initiator;
-            Executor = null; // Изначально не назначен
+            Executor = null;
             Status = TaskStatus.Назначена; 
         }
 
-        public void CreateReport(string text)
+        public void CreateReport(string text, string user)
         {
+            if (user != Executor)
+            {
+                Console.WriteLine("Отчет может сдать только исполнитель задачи");
+                return;
+            }
+
             if (Status != TaskStatus.ВРаботе)
             {
                 Console.WriteLine("Отчет можно сдать только из статуса В работе");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                Console.WriteLine("Текст отчета не может быть пустым");
                 return;
             }
 
@@ -88,7 +99,10 @@ namespace TaskManagerApp
         public string Initiator;
         public string TeamLead;
         public List<ProjectTask> Tasks = new List<ProjectTask>();
+        public List<string> Team = new List<string>();
         public ProjectStatus Status;
+
+        public const int MinTeamSize = 10;
 
         public Project(string description, string initiator, string teamLead)
         {
@@ -99,9 +113,37 @@ namespace TaskManagerApp
             Status = ProjectStatus.Проект;
         }
 
-        // Создание задачи
+        public void AddTeamMember(string user, string member)
+        {
+            if (user != TeamLead)
+            {
+                Console.WriteLine("Состав команды может менять только тимлид.");
+                return;
+            }
+
+            if (Status != ProjectStatus.Проект)
+            {
+                Console.WriteLine("Нельзя менять команду, проект уже в исполнении или закрыт.");
+                return;
+            }
+
+            if (Team.Contains(member))
+            {
+                Console.WriteLine($"Сотрудник {member} уже в команде.");
+                return;
+            }
+
+            Team.Add(member);
+        }
+
         public void AddTask(string desc, DateTime deadline, string initiator)
         {
+            if (initiator != TeamLead)
+            {
+                Console.WriteLine("Задачи может создавать только тимлид проекта.");
+                return;
+            }
+
             if (Status != ProjectStatus.Проект)
             {
                 Console.WriteLine("Нельзя добавлять задачи, проект уже в исполнении или закрыт.");
@@ -110,9 +152,20 @@ namespace TaskManagerApp
             Tasks.Add(new ProjectTask(desc, deadline, initiator));
         }
 
-        // Перевод проекта в исполнение
-        public void StartProject()
+        public void StartProject(string user)
         {
+            if (user != TeamLead)
+            {
+                Console.WriteLine("Перевести проект в исполнение может только тимлид.");
+                return;
+            }
+
+            if (Team.Count < MinTeamSize)
+            {
+                Console.WriteLine($"В команде должно быть не менее {MinTeamSize} человек, сейчас: {Team.Count}. Проект не переведен в исполнение.");
+                return;
+            }
+
             if (Status == ProjectStatus.Проект)
             {
                 Status = ProjectStatus.Исполнение;
@@ -149,6 +202,12 @@ namespace TaskManagerApp
             var task = project.Tasks.FirstOrDefault(t => t.Id == taskId);
             if (task == null) { Console.WriteLine("Задача не найдена."); return; }
 
+            if (!project.Team.Contains(executor))
+            {
+                Console.WriteLine($"Сотрудник {executor} не входит в команду проекта.");
+                return;
+            }
+
             if (task.Status == TaskStatus.Назначена && task.Executor == null)
             {
                 task.Executor = executor;
@@ -161,15 +220,27 @@ namespace TaskManagerApp
             }
         }
 
-        // Делегировать задачу
-        public void DelegateTask(Project project, int taskId, string newExecutor)
+        public void DelegateTask(Project project, int taskId, string user, string newExecutor)
         {
             var task = project.Tasks.FirstOrDefault(t => t.Id == taskId);
             if (task == null) return;
 
+            if (user != task.Executor)
+            {
+                Console.WriteLine("Делегировать задачу может только ее исполнитель.");
+                return;
+            }
+
+            if (!project.Team.Contains(newExecutor))
+            {
+                Console.WriteLine($"Сотрудник {newExecutor} не входит в команду проекта.");
+                return;
+            }
+
             if (task.Status == TaskStatus.ВРаботе || task.Status == TaskStatus.Назначена)
             {
                 task.Executor = newExecutor;
+                task.Status = TaskStatus.Назначена;
                 Console.WriteLine($"Задача #{taskId} делегирована на {newExecutor}. Статус: 'Назначена'.");
             }
             else
@@ -178,29 +249,51 @@ namespace TaskManagerApp
             }
         }
 
-        public void ApproveReport(Project project, int taskId)
+        public void ApproveReport(Project project, int taskId, string user)
         {
             var task = project.Tasks.FirstOrDefault(t => t.Id == taskId);
-            if (task != null && task.Status == TaskStatus.НаПроверке)
+            if (task == null) { Console.WriteLine("Задача не найдена."); return; }
+
+            if (user != task.Initiator)
             {
-                task.Status = TaskStatus.Выполнена;
-                Console.WriteLine($"Отчет по задаче #{taskId} утвержден. Задача выполнена.");
-                CheckProjectClosure(project);
+                Console.WriteLine("Утвердить отчет может только инициатор задачи.");
+                return;
             }
+
+            if (task.Status != TaskStatus.НаПроверке || task.TaskReport == null)
+            {
+                Console.WriteLine("Нет отчета на проверке.");
+                return;
+            }
+
+            task.Status = TaskStatus.Выполнена;
+            Console.WriteLine($"Отчет по задаче #{taskId} утвержден. Задача выполнена.");
+            CheckProjectClosure(project);
         }
 
-        public void RejectReport(Project project, int taskId)
+        public void RejectReport(Project project, int taskId, string user)
         {
             var task = project.Tasks.FirstOrDefault(t => t.Id == taskId);
-            if (task != null && task.Status == TaskStatus.НаПроверке)
+            if (task == null) { Console.WriteLine("Задача не найдена."); return; }
+
+            if (user != task.Initiator)
             {
-                task.Status = TaskStatus.ВРаботе;
-                Console.WriteLine($"Отчет по задаче #{taskId} отклонен. Задача возвращена в работу.");
-                task.Status = TaskStatus.ВРаботе;
+                Console.WriteLine("Вернуть отчет на доработку может только инициатор задачи.");
+                return;
             }
+
+            if (task.Status != TaskStatus.НаПроверке || task.TaskReport == null)
+            {
+                Console.WriteLine("Нет отчета на проверке.");
+                return;
+            }
+
+            task.ReportsHistory.Remove(task.TaskReport);
+            task.TaskReport = null;
+            task.Status = TaskStatus.ВРаботе;
+            Console.WriteLine($"Отчет по задаче #{taskId} отклонен. Задача возвращена в работу.");
         }
 
-        // Проверка, можно ли закрыть проект
         public void CheckProjectClosure(Project project)
         {
             if (project.Tasks.All(t => t.Status == TaskStatus.Выполнена))
@@ -224,29 +317,31 @@ namespace TaskManagerApp
             
             manager.CreateProject("Разработка CRM", "Директор", "Иванов");
             Project crmProject = new Project("Разработка CRM", "Директор", "Иванов");
-            
-            // Создание задач
-            crmProject.AddTask("Сверстать главную", DateTime.Now.AddDays(5), "Директор");
-            crmProject.AddTask("Написать бэкенд", DateTime.Now.AddDays(10), "Директор");
-            
-            // Старт проекта
-            crmProject.StartProject();
 
-            // Вывод задач
+            string[] members = { "Петров", "Сидоров", "Кузнецов", "Смирнов", "Попов", "Васильев", "Соколов", "Михайлов", "Новиков", "Федоров" };
+            foreach (var m in members)
+            {
+                crmProject.AddTeamMember("Иванов", m);
+            }
+            
+            crmProject.AddTask("Сверстать главную", DateTime.Now.AddDays(5), "Иванов");
+            crmProject.AddTask("Написать бэкенд", DateTime.Now.AddDays(10), "Иванов");
+            
+            crmProject.StartProject("Иванов");
+
             manager.PrintAllTasks(crmProject);
 
-            // Взятие задачи в работу
-            manager.TakeTask(crmProject, 1, "Петров"); // ID=1 (Сверстать)
-            manager.TakeTask(crmProject, 2, "Сидоров"); // ID=2 (Бэкенд)
+            manager.TakeTask(crmProject, 1, "Петров");
+            manager.TakeTask(crmProject, 2, "Сидоров");
 
-            // Сдача отчета 
             var task1 = crmProject.Tasks[0];
-            task1.CreateReport("Главная страница готова");
+            task1.CreateReport("Главная страница готова", "Петров");
 
-            // Утверждение отчета
-            manager.ApproveReport(crmProject, 1);
+            manager.RejectReport(crmProject, 1, "Иванов");
+            task1.CreateReport("Главная страница доработана", "Петров");
 
-            // Попытка закрыть проект (не все задачи выполнены)
+            manager.ApproveReport(crmProject, 1, "Иванов");
+
             manager.CheckProjectClosure(crmProject);
         }
     }
